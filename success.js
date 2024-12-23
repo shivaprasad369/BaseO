@@ -27,7 +27,7 @@ order.post('/api/place-order', async (req, res) => {
         Thank you for your order! Here are the details of your order:
         
         Order ID: ${orderDetails.orderId}
-        Product(s): ${orderDetails.products.map(product => product)}
+        Product(s): ${orderDetails?.products?.map(product => product)}
         Total: £${orderDetails.totalPrice}
         
         Your order will be processed soon, and we'll notify you once it's shipped.
@@ -39,12 +39,12 @@ order.post('/api/place-order', async (req, res) => {
 
     // Send email
     await transporter.sendMail(mailOptions);
-    console.log("Confirmation email sent to:", userEmail);
+    // console.log("Confirmation email sent to:", userEmail);
 
     // Send success response
     res.status(200).json({ message: 'Order placed successfully and confirmation sent!' });
   } catch (error) {
-    console.error('Error sending email:', error);
+    // console.error('Error sending  email:', error);
     res.status(500).json({ message: 'Failed to place order and send confirmation email' });
   }
 });

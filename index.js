@@ -11,6 +11,7 @@ import bodyParser from "body-parser";
 import checkout from "./Checkout..js";
 import order from "./success.js";
 import dashboard from "./dashboard.js";
+import adminroute from "./Admin/Authentication.js";
 
 dotenv.config(); 
 
@@ -30,6 +31,7 @@ app.use("/users", router);
 app.use("/checkout", checkout);  
 app.use('/order',order)
 app.use('/dashboard',dashboard)
+app.use('/admin',adminroute)
 app.post('/create-payment', async (req, res) => {
   try {
     const { amount, currency, description, customerName, customerAddress } = req.body;
@@ -545,7 +547,7 @@ app.post("/attribute-values", async (req, res) => {
   try {
     // Insert query
     const [result] = await pool.query(
-      "INSERT INTO tbl_AttributeValues (AttributeID, Value) VALUES (?, ?)",
+      "INSERT INTO tbl_attributevalues (AttributeID, Value) VALUES (?, ?)",
       [AttributeID, Value]
     );
 
@@ -567,7 +569,7 @@ app.post("/attribute-values", async (req, res) => {
 // Route to fetch attribute values
 app.get("/attribute-values", async (req, res) => {
   try {
-    const [rows] = await pool.query("SELECT * FROM tbl_AttributeValues");
+    const [rows] = await pool.query("SELECT * FROM tbl_attributevalues");
     res.status(200).json(rows);
   } catch (error) {
     console.error("Error fetching attribute values:", error);
@@ -770,7 +772,7 @@ app.get("/product-attributes/:id", async (req, res) => {
                 a.CategoryID,
                 a.AttributeName
             FROM tbl_productattribute pa
-            JOIN tbl_AttributeValues av ON pa.AttributeValueID = av.AttributeValueID
+            JOIN tbl_attributevalues av ON pa.AttributeValueID = av.AttributeValueID
             JOIN tbl_attributes a ON av.AttributeID = a.AttributeID
             JOIN tbl_products p ON pa.ProductID = p.ProductID
             WHERE a.CategoryID = ?  
@@ -805,7 +807,7 @@ app.get("/product-attributes/:id/:sub", async (req, res) => {
                 a.CategoryID,
                 a.AttributeName
             FROM tbl_productattribute pa
-            JOIN tbl_AttributeValues av ON pa.AttributeValueID = av.AttributeValueID
+            JOIN tbl_attributevalues av ON pa.AttributeValueID = av.AttributeValueID
             JOIN tbl_attributes a ON av.AttributeID = a.AttributeID
             JOIN tbl_products p ON pa.ProductID = p.ProductID
             WHERE a.CategoryID = ? AND p.SubCategoryIDone=?
@@ -840,7 +842,7 @@ app.get("/product-attributes/:id/:sub/:two", async (req, res) => {
     a.CategoryID,
     a.AttributeName
 FROM tbl_productattribute pa
-JOIN tbl_AttributeValues av ON pa.AttributeValueID = av.AttributeValueID
+JOIN tbl_attributevalues av ON pa.AttributeValueID = av.AttributeValueID
 JOIN tbl_attributes a ON av.AttributeID = a.AttributeID
 JOIN tbl_products p ON pa.ProductID = p.ProductID
 WHERE a.CategoryID = ? 
@@ -877,7 +879,7 @@ app.get("/product-attribute/:id", async (req, res) => {
                 a.AttributeName,
                 a.AttributeID
             FROM tbl_productattribute pa
-            JOIN tbl_AttributeValues av ON pa.AttributeValueID = av.AttributeValueID
+            JOIN tbl_attributevalues av ON pa.AttributeValueID = av.AttributeValueID
             JOIN tbl_attributes a ON av.AttributeID = a.AttributeID
             JOIN tbl_products p ON pa.ProductID = p.ProductID
             WHERE p.ProductID = ?
@@ -916,7 +918,7 @@ app.get("/product-attributes", async (req, res) => {
     a.CategoryID,
     a.AttributeName
 FROM tbl_productattribute pa
-JOIN tbl_AttributeValues av ON pa.AttributeValueID = av.AttributeValueID
+JOIN tbl_attributevalues av ON pa.AttributeValueID = av.AttributeValueID
 JOIN tbl_attributes a ON av.AttributeID = a.AttributeID
 JOIN tbl_products p ON pa.ProductID = p.ProductID;
 
@@ -941,7 +943,7 @@ app.get("/category/:categoryID/attributes", async (req, res) => {
             FROM 
                 tbl_Attributes a
             JOIN 
-                tbl_AttributeValues av ON a.AttributeID = av.AttributeID
+                tbl_attributevalues av ON a.AttributeID = av.AttributeID
             WHERE 
                 a.CategoryID = ?;
         `;
@@ -1075,7 +1077,7 @@ app.post("/reviews", async (req, res) => {
 
   try {
     const [result] = await pool.query(
-      `INSERT INTO CustomerReviews (CustomerName, ProductID, ReviewText, Rating) VALUES (?, ?, ?, ?)`,
+      `INSERT INTO customerreviews (CustomerName, ProductID, ReviewText, Rating) VALUES (?, ?, ?, ?)`,
       [CustomerName, ProductID, ReviewText, Rating]
     );
 
@@ -1097,7 +1099,7 @@ app.get("/reviews", async (req, res) => {
 
   try {
     const [rows] = await pool.query(
-      `SELECT * FROM CustomerReviews ORDER BY CreatedAt DESC LIMIT ? OFFSET ?`,
+      `SELECT * FROM customerreviews ORDER BY CreatedAt DESC LIMIT ? OFFSET ?`,
       [parseInt(limit), parseInt(offset)]
     );
 
@@ -1150,7 +1152,7 @@ app.post("/topcategories", upload.single("Image"), async (req, res) => {
     if (!req.body.CategoryID) {
       return res.status(400).json({ error: "CategoryID is required." });
     }
-    const query = `INSERT INTO TopSellingCategories (CategoryID,Name, Image) VALUES (?,?,?)`;
+    const query = `INSERT INTO topsellingcategories (CategoryID,Name, Image) VALUES (?,?,?)`;
     const [result] = await pool.query(query, [CategoryID, Name, Image]);
 
     res
@@ -1167,7 +1169,7 @@ app.post("/topcategories", upload.single("Image"), async (req, res) => {
 // Fetch Top Selling Categories
 app.get("/topcategories", async (req, res) => {
   try {
-    const query = `SELECT * FROM TopSellingCategories`;
+    const query = `SELECT * FROM topsellingcategories`;
     const [rows] = await pool.query(query);
 
     res.status(200).json(rows);
