@@ -40,7 +40,7 @@ console.log(req.body)
 
     const token = jwt.sign({ Email: email }, process.env.JWT_SECRET, { expiresIn: '1h' });
 
-    const verificationUrl = `http://localhost:5000/users/verify-email?token=${token}`;
+    const verificationUrl = `https://baseo.onrender.com/users/verify-email?token=${token}`;
 
     await transporter.sendMail({
       from: process.env.EMAIL_USER,
