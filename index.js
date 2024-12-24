@@ -75,18 +75,18 @@ app.get("/test-db", async (req, res) => {
 });
 
 // POST: Add a new subcategory
-app.post("/categories", async (req, res) => {
+app.post("/categories",upload.single("Image"), async (req, res) => {
   const {
     CategoryName,
     CatURL,
     Title,
     KeyWord,
     Description,
-    Image,
     ParentCategoryID,
     SubCategoryLevel,
   } = req.body;
-
+  
+  const image = req.file ? "uploads/" + req.file.filename : null;
   try {
     if (!CategoryName || !SubCategoryLevel) {
       return res
@@ -106,7 +106,7 @@ app.post("/categories", async (req, res) => {
       Title || null,
       KeyWord || null,
       Description || null,
-      Image || null,
+      image ,
       ParentCategoryID || null,
       SubCategoryLevel,
     ]);
@@ -140,7 +140,7 @@ app.get("/categories", async (req, res) => {
             LEFT JOIN tbl_category c2 ON c2.ParentCategoryID = c1.CategoryID AND c2.SubCategoryLevel = 'One'
             LEFT JOIN tbl_category c3 ON c3.ParentCategoryID = c2.CategoryID AND c3.SubCategoryLevel = 'Two'
             LEFT JOIN tbl_category c4 ON c4.ParentCategoryID = c3.CategoryID AND c4.SubCategoryLevel = 'Three'
-            WHERE c1.ParentCategoryID IS NULL
+            WHERE c1.ParentCategoryID IS NULL OR 0
             ORDER BY c1.CategoryID, c2.CategoryID, c3.CategoryID, c4.CategoryID;
         `;
 
@@ -171,6 +171,7 @@ app.get("/categories", async (req, res) => {
           subCategoryOne = {
             CategoryID: row.SubCategoryOneID,
             CategoryName: row.SubCategoryOne,
+            Image: row.Image,
             SubCategories: [],
           };
           mainCategoriesMap[row.MainCategoryID].SubCategories.push(
@@ -187,6 +188,7 @@ app.get("/categories", async (req, res) => {
             subCategoryTwo = {
               CategoryID: row.SubCategoryTwoID,
               CategoryName: row.SubCategoryTwo,
+              Image: row.Image,
               SubCategories: [],
             };
             subCategoryOne.SubCategories.push(subCategoryTwo);
@@ -195,6 +197,7 @@ app.get("/categories", async (req, res) => {
           if (row.SubCategoryThreeID) {
             subCategoryTwo.SubCategories.push({
               CategoryID: row.SubCategoryThreeID,
+              Image: row.Image,
               CategoryName: row.SubCategoryThree,
             });
           }
@@ -215,7 +218,7 @@ app.get("/categories/:id", async (req, res) => {
             SELECT 
                 c1.CategoryID AS MainCategoryID,
                 c1.CategoryName AS MainCategory,
-                c1.Image AS MainCategoryImage,
+                c2.Image AS MainCategoryImage,
                 c1.Description AS MainCategoryDescription,
                 c2.CategoryID AS SubCategoryOneID,
                 c2.CategoryName AS SubCategoryOne,
@@ -242,7 +245,7 @@ app.get("/categories/:id", async (req, res) => {
         mainCategoriesMap[row.MainCategoryID] = {
           CategoryID: row.MainCategoryID,
           CategoryName: row.MainCategory,
-          Image: row.MainCategoryImage,
+          Image: row.Image,
           Description: row.MainCategoryDescription,
           SubCategories: [],
         };
@@ -258,6 +261,7 @@ app.get("/categories/:id", async (req, res) => {
           subCategoryOne = {
             CategoryID: row.SubCategoryOneID,
             CategoryName: row.SubCategoryOne,
+            Image:row.MainCategoryImage,
             SubCategories: [],
           };
           mainCategoriesMap[row.MainCategoryID].SubCategories.push(
@@ -274,6 +278,7 @@ app.get("/categories/:id", async (req, res) => {
             subCategoryTwo = {
               CategoryID: row.SubCategoryTwoID,
               CategoryName: row.SubCategoryTwo,
+              Image:row.Image,
               SubCategories: [],
             };
             subCategoryOne.SubCategories.push(subCategoryTwo);
@@ -283,6 +288,7 @@ app.get("/categories/:id", async (req, res) => {
             subCategoryTwo.SubCategories.push({
               CategoryID: row.SubCategoryThreeID,
               CategoryName: row.SubCategoryThree,
+              Image:row.Image,
             });
           }
         }
@@ -490,12 +496,9 @@ app.put("/users/:id", async (req, res) => {
   }
 });
 
-// Delete a user
-// Route to insert attributes
 app.post("/attributes", async (req, res) => {
-  const { AttributeName, CategoryID } = req.body;
+  const { AttributeName, CategoryID,value } = req.body;
 
-  // Validate input
   if (!AttributeName || !CategoryID) {
     return res
       .status(400)
@@ -503,18 +506,24 @@ app.post("/attributes", async (req, res) => {
   }
 
   try {
-    // Insert query
     const [result] = await pool.query(
-      "INSERT INTO tbl_Attributes (AttributeName, CategoryID) VALUES (?, ?)",
+      "INSERT INTO tbl_attributes (AttributeName, CategoryID) VALUES (?, ?)",
       [AttributeName, CategoryID]
     );
-
+    for (const val of value) {
+      const [result2] = await pool.query(
+        "INSERT INTO tbl_attributevalues (AttributeID, Value) VALUES (?, ?)",
+        [result.insertId, val]
+      );
+    }
+    
     res.status(201).json({
       message: "Attribute inserted successfully",
       AttributeID: result.insertId,
       AttributeName,
       CategoryID,
     });
+    
   } catch (error) {
     console.error("Error inserting attribute:", error);
     res
@@ -600,8 +609,7 @@ app.post("/products", upload.single("Image"), async (req, res) => {
     MetaKeyWords,
     MetaDescription,
   } = req.body;
-
-  // Check if file is uploaded and assign image path
+ 
   const image = req.file ? "uploads/" + req.file.filename : null;
 
   // Ensure required fields are present
