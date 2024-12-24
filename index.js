@@ -1183,9 +1183,8 @@ app.get("/generate-id", (req, res) => {
   const now = new Date();
   const dateStr = now.toISOString().split('T')[0].replace(/-/g, '');
   const timeStr = now.toISOString().split('T')[1].split('.')[0].replace(/:/g, '');
-
-  const uniqueId = `B${dateStr}${timeStr}`;
-
+  const secondsStr = now.getSeconds().toString().padStart(2, '0'); // Get seconds with 2 digits
+  const uniqueId = `${dateStr}${timeStr}${secondsStr}`;
   res.json({ id: uniqueId });
 });
 app.get("/get-cart-by-number", async (req, res) => {
