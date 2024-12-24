@@ -1387,7 +1387,7 @@ app.put("/update-quantity", async (req, res) => {
           [id, userId]
         );
   
-        if (checkResult.length > 0 && checkResult[0].Qty === 0) {
+        if ( checkResult[0].Qty === 0) {
           await pool.execute(
             `DELETE FROM tbl_tempcart 
              WHERE ProductAttributeID = ? AND CartNumber = ?`,
