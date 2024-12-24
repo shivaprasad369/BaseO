@@ -1180,8 +1180,12 @@ app.get("/topcategories", async (req, res) => {
 });
 
 app.get("/generate-id", (req, res) => {
-  currentId += 1; // Increment the ID by 1
-  const uniqueId = `B${currentId}`;
+  const now = new Date();
+  const dateStr = now.toISOString().split('T')[0].replace(/-/g, '');
+  const timeStr = now.toISOString().split('T')[1].split('.')[0].replace(/:/g, '');
+
+  const uniqueId = `B${dateStr}${timeStr}`;
+
   res.json({ id: uniqueId });
 });
 app.get("/get-cart-by-number", async (req, res) => {
@@ -1211,10 +1215,7 @@ app.get("/get-cart-by-number", async (req, res) => {
     } else {
       query += `WHERE tc.CartNumber = ? AND tc.UserID=?`;
       queryParams.push(cartNumber,1);
-      // queryParams.push(1);
     }
-
-    // query += ` GROUP BY tc.ProductAttributeID`;
 
     const [rows] = await pool.query(query, queryParams);
 
@@ -1236,12 +1237,9 @@ app.get("/get-updated-cart", async (req, res) => {
   const { cartNumber, userId } = req.query;
 
   try {
-    // Validate input
     if (!cartNumber || !userId) {
       return res.status(400).json({ error: "CartNumber and userId are required." });
     }
-
-    // Fetch cart data for the given user
     const [rows] = await pool.query(
       `
         SELECT 
@@ -1256,27 +1254,21 @@ app.get("/get-updated-cart", async (req, res) => {
       `,
       [userId]
     );
-
-    // Check if cart is empty
     if (rows.length === 0) {
       return res.status(404).json({ message: "No cart items found for the given user." });
     }
-
-    // Prepare data for batch insertion into `tbl_finalcart`
     const insertData = rows.map((row) => [
-      userId, // UserID
-      row.ProductID, // ProductID
-      row.Price, // Price
-      row.Qty, // Qty
-      row.Price * row.Qty, // ItemTotal
-      0, // VedorProdStatus (default)
-      `SUB${Date.now()}${row.ProductID}`, // SubOrderNo
-      row.Price * row.Qty, // ItemTotalVoucherprice
-      1, // WebsiteType (default)
-      0 // Voucherprice (default)
+      userId, 
+      row.ProductID, 
+      row.Price, 
+      row.Qty, 
+      row.Price * row.Qty,
+      0,
+      `SUB${Date.now()}${row.ProductID}`,
+      row.Price * row.Qty, 
+      1,
+      0
     ]);
-
-    // Batch insert cart items into `tbl_finalcart`
     const insertQuery = `
       INSERT INTO tbl_finalcart 
       (UserID, ProductID, Price, Qty, ItemTotal, OrderDate, VedorProdStatus, SubOrderNo, ItemTotalVoucherprice, WebsiteType, Voucherprice)
@@ -1295,8 +1287,6 @@ app.get("/get-updated-cart", async (req, res) => {
     res.status(500).json({ error: "Failed to update cart data." });
   }
 });
-
-// Endpoint to store or update cart items
 app.post("/store-cart", async (req, res) => {
     const { cartItems } = req.body;
     const {id}=req.query;
@@ -1352,59 +1342,58 @@ app.post("/store-cart", async (req, res) => {
       return res.status(500).json({ error: "Failed to store cart item" });
     }
   });
-  
-// Endpoint to update quantity
+ 
 app.put("/update-quantity", async (req, res) => {
-    const { id, userId, number,user } = req.body;
+  const { id, userId, number, user } = req.body;
 
-    if (!id || !userId || !number || !number.qty || !number.action) {
-      return res.status(400).json({
-        error: "id, userId, number.qty, and number.action are required.",
-      });
-    }
-  
-    if (!["increment", "decrement"].includes(number.action)) {
-      return res
-        .status(400)
-        .json({ error: 'Invalid action. Use "increment" or "decrement".' });
-    }
-  
-    try {
-      const operation = number.action === "increment" ? "+" : "-";
-      const [updateResult] = await pool.execute(
-        `UPDATE tbl_tempcart 
-         SET Qty = GREATEST(0, Qty ${operation} ?), 
-             ItemTotal = Price * GREATEST(0, Qty ${operation} ?) 
-         WHERE ProductAttributeID = ? AND CartNumber = ? AND UserID=?`,
-        [number.qty, number.qty, id, userId,user]
+  if (!id || !userId || !number || !number.qty || !number.action) {
+    return res.status(400).json({
+      error: "id, userId, number.qty, and number.action are required.",
+    });
+  }
+
+  if (!["increment", "decrement"].includes(number.action)) {
+    return res
+      .status(400)
+      .json({ error: 'Invalid action. Use "increment" or "decrement".' });
+  }
+  try {
+    const operation = number.action === "increment" ? "+" : "-";
+    const [updateResult] = await pool.execute(
+      `UPDATE tbl_tempcart 
+       SET Qty = GREATEST(0, Qty ${operation} ?), 
+           ItemTotal = Price * GREATEST(0, Qty ${operation} ?) 
+       WHERE ProductAttributeID = ? AND CartNumber = ? AND UserID=?`,
+      [number.qty, number.qty, id, userId, user]
+    );
+
+    if (updateResult.affectedRows > 0) {
+      // Re-fetch the current quantity after update
+      const [checkResult] = await pool.execute(
+        `SELECT Qty FROM tbl_tempcart 
+         WHERE ProductAttributeID = ? AND CartNumber = ?`,
+        [id, userId]
       );
-  
-      if (updateResult.affectedRows > 0) {
-        // Check if the quantity is now 0 and delete the item
-        const [checkResult] = await pool.execute(
-          `SELECT Qty FROM tbl_tempcart 
+      if (checkResult.length > 0 && checkResult[0].Qty === 0) {
+        // If quantity is 0, delete the item
+        await pool.execute(
+          `DELETE FROM tbl_tempcart 
            WHERE ProductAttributeID = ? AND CartNumber = ?`,
           [id, userId]
         );
-  
-        if ( checkResult[0].Qty === 0) {
-          await pool.execute(
-            `DELETE FROM tbl_tempcart 
-             WHERE ProductAttributeID = ? AND CartNumber = ?`,
-            [id, userId]
-          );
-          return res.status(200).json({ message: "Item deleted as quantity reached 0" });
-        }
-  
-        return res.status(200).json({ message: "Quantity updated successfully" });
-      } else {
-        return res.status(404).json({ error: "Product not found in cart" });
+        return res.status(200).json({ message: "Item deleted as quantity reached 0" });
       }
-    } catch (error) {
-      console.error("Error updating quantity:", error);
-      return res.status(500).json({ error: "Failed to update quantity" });
+
+      return res.status(200).json({ message: "Quantity updated successfully" });
+    } else {
+      return res.status(404).json({ error: "Product not found in cart" });
     }
-  });
+  } catch (error) {
+    console.error("Error updating quantity:", error);
+    return res.status(500).json({ error: "Failed to update quantity" });
+  }
+});
+
   app.put('/update-cart-user',async(req,res)=>{
     const {cartNumber,userId}=req.body;
     if(!cartNumber || !userId){
