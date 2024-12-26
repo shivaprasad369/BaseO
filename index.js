@@ -79,6 +79,232 @@ app.get("/test-db", async (req, res) => {
     res.status(500).send("Database connection failed");
   }
 });
+app.post("/categories",upload.single("Image"), async (req, res) => {
+  const {
+    CategoryName,
+    CatURL,
+    Title,
+    KeyWord,
+    Description,
+    ParentCategoryID,
+    SubCategoryLevel,
+  } = req.body;
+  
+  const image = req.file ? "uploads/" + req.file.filename : null;
+  try {
+    if (!CategoryName || !SubCategoryLevel) {
+      return res
+        .status(400)
+        .json({ message: "CategoryName and SubCategoryLevel are required" });
+    }
+
+    const query = `
+            INSERT INTO tbl_category 
+            (CategoryName, CatURL, Title, KeyWord, Description, Image, ParentCategoryID, SubCategoryLevel)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+        `;
+
+    const [result] = await pool.query(query, [
+      CategoryName,
+      CatURL || null,
+      Title || null,
+      KeyWord || null,
+      Description || null,
+      image ,
+      ParentCategoryID || null,
+      SubCategoryLevel,
+    ]);
+
+    res.status(201).json({
+      message: "Category added successfully",
+      CategoryID: result.insertId,
+    });
+  } catch (err) {
+    console.error("Error adding category:", err);
+    res.status(500).json({ message: "Error adding category" });
+  }
+});
+
+// GET request for fetching categories
+app.get("/categories", async (req, res) => {
+  try {
+    const query = `
+            SELECT 
+                c1.CategoryID AS MainCategoryID,
+                c1.CategoryName AS MainCategory,
+                c1.Image AS MainCategoryImage,
+                c1.Description AS MainCategoryDescription,
+                c2.CategoryID AS SubCategoryOneID,
+                c2.CategoryName AS SubCategoryOne,
+                c3.CategoryID AS SubCategoryTwoID,
+                c3.CategoryName AS SubCategoryTwo,
+                c4.CategoryID AS SubCategoryThreeID,
+                c4.CategoryName AS SubCategoryThree
+            FROM tbl_category c1
+            LEFT JOIN tbl_category c2 ON c2.ParentCategoryID = c1.CategoryID AND c2.SubCategoryLevel = 'One'
+            LEFT JOIN tbl_category c3 ON c3.ParentCategoryID = c2.CategoryID AND c3.SubCategoryLevel = 'Two'
+            LEFT JOIN tbl_category c4 ON c4.ParentCategoryID = c3.CategoryID AND c4.SubCategoryLevel = 'Three'
+            WHERE c1.ParentCategoryID IS NULL OR 0
+            ORDER BY c1.CategoryID, c2.CategoryID, c3.CategoryID, c4.CategoryID;
+        `;
+
+    const [results] = await pool.query(query);
+
+    // Structure the data hierarchically
+    const categories = [];
+    const mainCategoriesMap = {};
+
+    results.forEach((row) => {
+      if (!mainCategoriesMap[row.MainCategoryID]) {
+        mainCategoriesMap[row.MainCategoryID] = {
+          CategoryID: row.MainCategoryID,
+          CategoryName: row.MainCategory,
+          Image: row.MainCategoryImage,
+          Description: row.MainCategoryDescription,
+          SubCategories: [],
+        };
+        categories.push(mainCategoriesMap[row.MainCategoryID]);
+      }
+
+      if (row.SubCategoryOneID) {
+        let subCategoryOne = mainCategoriesMap[
+          row.MainCategoryID
+        ].SubCategories.find((sub) => sub.CategoryID === row.SubCategoryOneID);
+
+        if (!subCategoryOne) {
+          subCategoryOne = {
+            CategoryID: row.SubCategoryOneID,
+            CategoryName: row.SubCategoryOne,
+            Image: row.Image,
+            SubCategories: [],
+          };
+          mainCategoriesMap[row.MainCategoryID].SubCategories.push(
+            subCategoryOne
+          );
+        }
+
+        if (row.SubCategoryTwoID) {
+          let subCategoryTwo = subCategoryOne.SubCategories.find(
+            (sub) => sub.CategoryID === row.SubCategoryTwoID
+          );
+
+          if (!subCategoryTwo) {
+            subCategoryTwo = {
+              CategoryID: row.SubCategoryTwoID,
+              CategoryName: row.SubCategoryTwo,
+              Image: row.Image,
+              SubCategories: [],
+            };
+            subCategoryOne.SubCategories.push(subCategoryTwo);
+          }
+
+          if (row.SubCategoryThreeID) {
+            subCategoryTwo.SubCategories.push({
+              CategoryID: row.SubCategoryThreeID,
+              Image: row.Image,
+              CategoryName: row.SubCategoryThree,
+            });
+          }
+        }
+      }
+    });
+
+    res.status(200).json(categories);
+  } catch (err) {
+    console.error("Error fetching categories:", err);
+    res.status(500).json({ message: "Error fetching categories" });
+  }
+});
+app.get("/categories/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const query = `
+            SELECT 
+                c1.CategoryID AS MainCategoryID,
+                c1.CategoryName AS MainCategory,
+                c2.Image AS MainCategoryImage,
+                c1.Description AS MainCategoryDescription,
+                c2.CategoryID AS SubCategoryOneID,
+                c2.CategoryName AS SubCategoryOne,
+                c3.CategoryID AS SubCategoryTwoID,
+                c3.CategoryName AS SubCategoryTwo,
+                c4.CategoryID AS SubCategoryThreeID,
+                c4.CategoryName AS SubCategoryThree
+            FROM tbl_category c1
+            LEFT JOIN tbl_category c2 ON c2.ParentCategoryID = c1.CategoryID AND c2.SubCategoryLevel = 'One'
+            LEFT JOIN tbl_category c3 ON c3.ParentCategoryID = c2.CategoryID AND c3.SubCategoryLevel = 'Two'
+            LEFT JOIN tbl_category c4 ON c4.ParentCategoryID = c3.CategoryID AND c4.SubCategoryLevel = 'Three'
+            WHERE c1.CategoryID = ?
+            ORDER BY c1.CategoryID, c2.CategoryID, c3.CategoryID, c4.CategoryID;
+        `;
+
+    const [results] = await pool.query(query, [id]);
+
+    // Structure the data hierarchically
+    const categories = [];
+    const mainCategoriesMap = {};
+
+    results.forEach((row) => {
+      if (!mainCategoriesMap[row.MainCategoryID]) {
+        mainCategoriesMap[row.MainCategoryID] = {
+          CategoryID: row.MainCategoryID,
+          CategoryName: row.MainCategory,
+          Image: row.Image,
+          Description: row.MainCategoryDescription,
+          SubCategories: [],
+        };
+        categories.push(mainCategoriesMap[row.MainCategoryID]);
+      }
+
+      if (row.SubCategoryOneID) {
+        let subCategoryOne = mainCategoriesMap[
+          row.MainCategoryID
+        ].SubCategories.find((sub) => sub.CategoryID === row.SubCategoryOneID);
+
+        if (!subCategoryOne) {
+          subCategoryOne = {
+            CategoryID: row.SubCategoryOneID,
+            CategoryName: row.SubCategoryOne,
+            Image:row.MainCategoryImage,
+            SubCategories: [],
+          };
+          mainCategoriesMap[row.MainCategoryID].SubCategories.push(
+            subCategoryOne
+          );
+        }
+
+        if (row.SubCategoryTwoID) {
+          let subCategoryTwo = subCategoryOne.SubCategories.find(
+            (sub) => sub.CategoryID === row.SubCategoryTwoID
+          );
+
+          if (!subCategoryTwo) {
+            subCategoryTwo = {
+              CategoryID: row.SubCategoryTwoID,
+              CategoryName: row.SubCategoryTwo,
+              Image:row.Image,
+              SubCategories: [],
+            };
+            subCategoryOne.SubCategories.push(subCategoryTwo);
+          }
+
+          if (row.SubCategoryThreeID) {
+            subCategoryTwo.SubCategories.push({
+              CategoryID: row.SubCategoryThreeID,
+              CategoryName: row.SubCategoryThree,
+              Image:row.Image,
+            });
+          }
+        }
+      }
+    });
+
+    res.status(200).json(categories);
+  } catch (err) {
+    console.error("Error fetching categories:", err);
+    res.status(500).json({ message: "Error fetching categories" });
+  }
+});
 app.get("/categories/:id/:sub", async (req, res) => {
   try {
     const { id, sub } = req.params;
