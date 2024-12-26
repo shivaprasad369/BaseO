@@ -1,33 +1,22 @@
-import express from 'express';
-import http from 'http';
-import { Server } from 'socket.io';
-import path from "path";
-import cors from "cors";
-import { fileURLToPath } from "url";
+import express from "express";
 import pool from "./db.js";
+import cors from "cors";
+import upload from "./uploads.js";
+import path from "path";
+import { fileURLToPath } from "url";
 import stripePackage from 'stripe';   // Import Stripe
-import router from './Authenticate.js';
-import checkout from './Checkout..js';
-import adminroute from './Admin/Authentication.js';
-import order from './success.js';
-import dashboard from './dashboard.js';
-import upload from './uploads.js';
+import router from "./Authenticate.js";
 import dotenv from "dotenv";
-import attribute from './Attribute.js';
-const stripe = stripePackage(`sk_test_51P1t8WSBkoBjEhoPMrwvePnLJyEsHYOJQyJzmEO744LRzBeLwJN1tk1wrQtj5kwGmtYALYSMJIo1yPcUpTYVIdHm00wXx01AX2`);
+import bodyParser from "body-parser";
+import checkout from "./Checkout..js";
+import order from "./success.js";
+import dashboard from "./dashboard.js";
+import adminroute from "./Admin/Authentication.js";
+
 dotenv.config(); 
 
-const app = express();
 app.use(cors());
-const server = http.createServer(app);
-
-// Initialize socket.io server
-const io = new Server(server, {
-  cors: {
-    origin: '*', // Allow all origins, adjust for production
-    methods: ['GET', 'POST'],
-  },
-});
+const app = express();
 
 app.use(express.json()); 
 
@@ -35,15 +24,15 @@ app.use(express.urlencoded({ extended: true }));
 
   const __filename = fileURLToPath(import.meta.url);
   const __dirname = path.dirname(__filename);
-app.use("/uploads", express.static(path.join(__dirname, "uploads")));
-app.use("/users", router);
-app.use("/checkout", checkout);
-app.use('/admin',adminroute)
-app.use("/users", router);  
+  let currentId = 202412085; // Starting value
+  const stripe = stripePackage(`sk_test_51P1t8WSBkoBjEhoPMrwvePnLJyEsHYOJQyJzmEO744LRzBeLwJN1tk1wrQtj5kwGmtYALYSMJIo1yPcUpTYVIdHm00wXx01AX2`);
+  app.use('/admin',adminroute)
+  app.use("/users", router);  
 app.use("/checkout", checkout);  
 app.use('/order',order)
 app.use('/dashboard',dashboard)
-app.use('/',attribute)
+
+
 app.post('/create-payment', async (req, res) => {
   try {
     const { amount, currency, description, customerName, customerAddress } = req.body;
@@ -69,6 +58,12 @@ app.post('/create-payment', async (req, res) => {
   }
 }); 
 
+// Serve uploaded images
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+app.use("/users", router);
+app.use("/checkout", checkout);
+
+// Test the database connection
 app.get("/test-db", async (req, res) => {
   console.log("connected");
   try {
@@ -77,6 +72,234 @@ app.get("/test-db", async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).send("Database connection failed");
+  }
+});
+
+// POST: Add a new subcategory
+app.post("/categories",upload.single("Image"), async (req, res) => {
+  const {
+    CategoryName,
+    CatURL,
+    Title,
+    KeyWord,
+    Description,
+    ParentCategoryID,
+    SubCategoryLevel,
+  } = req.body;
+  
+  const image = req.file ? "uploads/" + req.file.filename : null;
+  try {
+    if (!CategoryName || !SubCategoryLevel) {
+      return res
+        .status(400)
+        .json({ message: "CategoryName and SubCategoryLevel are required" });
+    }
+
+    const query = `
+            INSERT INTO tbl_category 
+            (CategoryName, CatURL, Title, KeyWord, Description, Image, ParentCategoryID, SubCategoryLevel)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+        `;
+
+    const [result] = await pool.query(query, [
+      CategoryName,
+      CatURL || null,
+      Title || null,
+      KeyWord || null,
+      Description || null,
+      image ,
+      ParentCategoryID || null,
+      SubCategoryLevel,
+    ]);
+
+    res.status(201).json({
+      message: "Category added successfully",
+      CategoryID: result.insertId,
+    });
+  } catch (err) {
+    console.error("Error adding category:", err);
+    res.status(500).json({ message: "Error adding category" });
+  }
+});
+
+// GET request for fetching categories
+app.get("/categories", async (req, res) => {
+  try {
+    const query = `
+            SELECT 
+                c1.CategoryID AS MainCategoryID,
+                c1.CategoryName AS MainCategory,
+                c1.Image AS MainCategoryImage,
+                c1.Description AS MainCategoryDescription,
+                c2.CategoryID AS SubCategoryOneID,
+                c2.CategoryName AS SubCategoryOne,
+                c3.CategoryID AS SubCategoryTwoID,
+                c3.CategoryName AS SubCategoryTwo,
+                c4.CategoryID AS SubCategoryThreeID,
+                c4.CategoryName AS SubCategoryThree
+            FROM tbl_category c1
+            LEFT JOIN tbl_category c2 ON c2.ParentCategoryID = c1.CategoryID AND c2.SubCategoryLevel = 'One'
+            LEFT JOIN tbl_category c3 ON c3.ParentCategoryID = c2.CategoryID AND c3.SubCategoryLevel = 'Two'
+            LEFT JOIN tbl_category c4 ON c4.ParentCategoryID = c3.CategoryID AND c4.SubCategoryLevel = 'Three'
+            WHERE c1.ParentCategoryID IS NULL OR 0
+            ORDER BY c1.CategoryID, c2.CategoryID, c3.CategoryID, c4.CategoryID;
+        `;
+
+    const [results] = await pool.query(query);
+
+    // Structure the data hierarchically
+    const categories = [];
+    const mainCategoriesMap = {};
+
+    results.forEach((row) => {
+      if (!mainCategoriesMap[row.MainCategoryID]) {
+        mainCategoriesMap[row.MainCategoryID] = {
+          CategoryID: row.MainCategoryID,
+          CategoryName: row.MainCategory,
+          Image: row.MainCategoryImage,
+          Description: row.MainCategoryDescription,
+          SubCategories: [],
+        };
+        categories.push(mainCategoriesMap[row.MainCategoryID]);
+      }
+
+      if (row.SubCategoryOneID) {
+        let subCategoryOne = mainCategoriesMap[
+          row.MainCategoryID
+        ].SubCategories.find((sub) => sub.CategoryID === row.SubCategoryOneID);
+
+        if (!subCategoryOne) {
+          subCategoryOne = {
+            CategoryID: row.SubCategoryOneID,
+            CategoryName: row.SubCategoryOne,
+            Image: row.Image,
+            SubCategories: [],
+          };
+          mainCategoriesMap[row.MainCategoryID].SubCategories.push(
+            subCategoryOne
+          );
+        }
+
+        if (row.SubCategoryTwoID) {
+          let subCategoryTwo = subCategoryOne.SubCategories.find(
+            (sub) => sub.CategoryID === row.SubCategoryTwoID
+          );
+
+          if (!subCategoryTwo) {
+            subCategoryTwo = {
+              CategoryID: row.SubCategoryTwoID,
+              CategoryName: row.SubCategoryTwo,
+              Image: row.Image,
+              SubCategories: [],
+            };
+            subCategoryOne.SubCategories.push(subCategoryTwo);
+          }
+
+          if (row.SubCategoryThreeID) {
+            subCategoryTwo.SubCategories.push({
+              CategoryID: row.SubCategoryThreeID,
+              Image: row.Image,
+              CategoryName: row.SubCategoryThree,
+            });
+          }
+        }
+      }
+    });
+
+    res.status(200).json(categories);
+  } catch (err) {
+    console.error("Error fetching categories:", err);
+    res.status(500).json({ message: "Error fetching categories" });
+  }
+});
+app.get("/categories/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const query = `
+            SELECT 
+                c1.CategoryID AS MainCategoryID,
+                c1.CategoryName AS MainCategory,
+                c2.Image AS MainCategoryImage,
+                c1.Description AS MainCategoryDescription,
+                c2.CategoryID AS SubCategoryOneID,
+                c2.CategoryName AS SubCategoryOne,
+                c3.CategoryID AS SubCategoryTwoID,
+                c3.CategoryName AS SubCategoryTwo,
+                c4.CategoryID AS SubCategoryThreeID,
+                c4.CategoryName AS SubCategoryThree
+            FROM tbl_category c1
+            LEFT JOIN tbl_category c2 ON c2.ParentCategoryID = c1.CategoryID AND c2.SubCategoryLevel = 'One'
+            LEFT JOIN tbl_category c3 ON c3.ParentCategoryID = c2.CategoryID AND c3.SubCategoryLevel = 'Two'
+            LEFT JOIN tbl_category c4 ON c4.ParentCategoryID = c3.CategoryID AND c4.SubCategoryLevel = 'Three'
+            WHERE c1.CategoryID = ?
+            ORDER BY c1.CategoryID, c2.CategoryID, c3.CategoryID, c4.CategoryID;
+        `;
+
+    const [results] = await pool.query(query, [id]);
+
+    // Structure the data hierarchically
+    const categories = [];
+    const mainCategoriesMap = {};
+
+    results.forEach((row) => {
+      if (!mainCategoriesMap[row.MainCategoryID]) {
+        mainCategoriesMap[row.MainCategoryID] = {
+          CategoryID: row.MainCategoryID,
+          CategoryName: row.MainCategory,
+          Image: row.Image,
+          Description: row.MainCategoryDescription,
+          SubCategories: [],
+        };
+        categories.push(mainCategoriesMap[row.MainCategoryID]);
+      }
+
+      if (row.SubCategoryOneID) {
+        let subCategoryOne = mainCategoriesMap[
+          row.MainCategoryID
+        ].SubCategories.find((sub) => sub.CategoryID === row.SubCategoryOneID);
+
+        if (!subCategoryOne) {
+          subCategoryOne = {
+            CategoryID: row.SubCategoryOneID,
+            CategoryName: row.SubCategoryOne,
+            Image:row.MainCategoryImage,
+            SubCategories: [],
+          };
+          mainCategoriesMap[row.MainCategoryID].SubCategories.push(
+            subCategoryOne
+          );
+        }
+
+        if (row.SubCategoryTwoID) {
+          let subCategoryTwo = subCategoryOne.SubCategories.find(
+            (sub) => sub.CategoryID === row.SubCategoryTwoID
+          );
+
+          if (!subCategoryTwo) {
+            subCategoryTwo = {
+              CategoryID: row.SubCategoryTwoID,
+              CategoryName: row.SubCategoryTwo,
+              Image:row.Image,
+              SubCategories: [],
+            };
+            subCategoryOne.SubCategories.push(subCategoryTwo);
+          }
+
+          if (row.SubCategoryThreeID) {
+            subCategoryTwo.SubCategories.push({
+              CategoryID: row.SubCategoryThreeID,
+              CategoryName: row.SubCategoryThree,
+              Image:row.Image,
+            });
+          }
+        }
+      }
+    });
+
+    res.status(200).json(categories);
+  } catch (err) {
+    console.error("Error fetching categories:", err);
+    res.status(500).json({ message: "Error fetching categories" });
   }
 });
 app.get("/categories/:id/:sub", async (req, res) => {
@@ -167,6 +390,7 @@ app.get("/categories/:id/:sub", async (req, res) => {
     res.status(500).json({ message: "Error fetching categories" });
   }
 });
+
 app.post("/add-category", (req, res) => {
   const {
     CategoryName,
@@ -229,6 +453,7 @@ app.post("/add-category", (req, res) => {
   }
 });
 
+// Fetch all users
 app.get("/users", async (req, res) => {
   try {
     const [users] = await pool.query("SELECT * FROM users");
@@ -238,6 +463,8 @@ app.get("/users", async (req, res) => {
     res.status(500).send("Error fetching users");
   }
 });
+
+// Insert a new user
 app.post("/users", async (req, res) => {
   const { name, email } = req.body;
   try {
@@ -269,6 +496,7 @@ app.put("/users/:id", async (req, res) => {
     res.status(500).send("Error updating user");
   }
 });
+
 app.post("/attributes", async (req, res) => {
   const { AttributeName, CategoryID,value } = req.body;
 
@@ -306,7 +534,7 @@ app.post("/attributes", async (req, res) => {
 });
 app.get("/attributes", async (req, res) => {
   try {
-    const [rows] = await pool.query("SELECT * FROM tbl_attributes");
+    const [rows] = await pool.query("SELECT * FROM tbl_Attributes");
     res.status(200).json(rows);
   } catch (error) {
     console.error("Error fetching attributes:", error);
@@ -348,6 +576,7 @@ app.post("/attribute-values", async (req, res) => {
       });
   }
 });
+// Route to fetch attribute values
 app.get("/attribute-values", async (req, res) => {
   try {
     const [rows] = await pool.query("SELECT * FROM tbl_attributevalues");
@@ -381,7 +610,7 @@ app.post("/products", upload.single("Image"), async (req, res) => {
     MetaKeyWords,
     MetaDescription,
   } = req.body;
-
+ 
   const image = req.file ? "uploads/" + req.file.filename : null;
 
   // Ensure required fields are present
@@ -392,23 +621,22 @@ app.post("/products", upload.single("Image"), async (req, res) => {
   }
 
   try {
-    // Insert into tbl_products
     const query = `
-      INSERT INTO tbl_products (
-        ProductName, CategoryID, Description, ProductPrice, Discount,
-        Voucherprice, CashPrice, StockQuantity, SubCategoryIDtwo, 
-        SubCategoryIDone, Image, BrandID, DiscountPercentage, 
-        DiscountPrice, SellingPrice, Modelname, ProductUrl, MetaTitle, 
-        MetaKeyWords, MetaDescription
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `;
+        INSERT INTO tbl_products (
+          ProductName, CategoryID, Description, ProductPrice, Discount,
+          Voucherprice, CashPrice, StockQuantity, SubCategoryIDtwo, 
+          SubCategoryIDone, Image, BrandID, DiscountPercentage, 
+          DiscountPrice, SellingPrice, Modelname, ProductUrl, MetaTitle, 
+          MetaKeyWords, MetaDescription
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `;
 
-    const [productResult] = await pool.query(query, [
+    const [result] = await pool.query(query, [
       ProductName,
       CategoryID,
       Description,
       ProductPrice,
-      Discount || null,
+      Discount,
       Voucherprice || null,
       CashPrice || null,
       StockQuantity || null,
@@ -420,35 +648,22 @@ app.post("/products", upload.single("Image"), async (req, res) => {
       DiscountPrice || null,
       SellingPrice || null,
       Modelname || null,
-      ProductUrl || null,
+      ProductName || null,
       MetaTitle || null,
       MetaKeyWords || null,
       MetaDescription || null,
     ]);
 
-    const ProductID = productResult.insertId;
-
-    // Parse and insert attribute values
-    const attributeValues = JSON.parse(req.body.attributeValue || "{}"); // Default to empty object if attributeValue is not provided
-    for (const [_, value] of Object.entries(attributeValues)) {
-      await pool.query(
-        "INSERT INTO tbl_productattribute (ProductID, AttributeValueID) VALUES (?, ?)",
-        [ProductID, value]
-      );
-    }
-
-    // Respond with success message
     res.status(201).json({
       message: "Product added successfully",
-      ProductID,
+      ProductID: result.insertId,
       imageUrl: `http://localhost:3000/${image}`, // Return the image URL
     });
   } catch (error) {
-    console.error("Error adding product:", error.message);
+    console.error("Error adding product:", error);
     res.status(500).json({ error: "Failed to add product." });
   }
 });
-
 
 app.get("/products", async (req, res) => {
   try {
@@ -1233,45 +1448,8 @@ app.put("/update-quantity", async (req, res) => {
       return res.status(500).json({ error: "Failed to delete cart item" });
     }
   });
-const users = {};
-io.on('connection', (socket) => {
-  console.log('A user connected:', socket.id);
 
-  socket.on('register_user', (userId) => {
-    users[userId] = socket.id; 
-    socket.userId = userId; 
-    console.log(`User registered: ${userId} -> ${socket.id}`);
-  });
-  socket.on('admin_message', ({ userId, message }) => {
-    const targetSocketId = users[userId];
-    if (targetSocketId) {
-      io.to(targetSocketId).emit('private_message', {
-        sender: 'Admin',
-        message,
-      });
-    } else {
-      socket.emit('error_message', `User ${userId} not found or offline.`);
-    }
-  });
-  socket.on('private_message', ({ recipientId, message }) => {
-    const recipientSocketId = users[recipientId];
-    if (recipientSocketId) {
-      io.to(recipientSocketId).emit('private_message', {
-        sender: socket.userId,
-        message,
-      });
-    } else {
-      socket.emit('error_message', `User ${recipientId} not found or offline.`);
-    }
-  });
-  socket.on('disconnect', () => {
-    console.log('User disconnected:', socket.id);
-    if (socket.userId) {
-      delete users[socket.userId]; // Remove user from the mapping
-    }
-  });
-});
-const PORT = process.env.PORT || 5000;
-server.listen(PORT, () => {
-  console.log(`Server is running on http://localhost:${PORT}`);
+
+app.listen(5000, () => {
+  console.log("Server running on port 5000");
 });

@@ -7,34 +7,23 @@ import pool from "../db.js";
 import dotenv from "dotenv";
 dotenv.config();
 const adminroute = express.Router();
-// Register User
 adminroute.post("/register", async (req, res) => {
     const { FullName, UserName, Password, EmailID, PhoneNo } = req.body;
-
-    // Check if required fields are provided
     if (!FullName || !UserName || !Password || !EmailID) {
         return res.status(400).json({ message: "All fields are required" });
     }
-
     try {
-        // Check if the UserName or EmailID already exists in the database
         const [existingUser] = await pool.execute(
             `SELECT * FROM tbl_admin WHERE UserName = ? OR EmailID = ?`,
             [UserName, EmailID]
         );
-
-        // If UserName or EmailID already exists, return an error
         if (existingUser.length > 0) {
             return res.status(409).json({
                 message: "User with the same UserName or EmailID already exists",
             });
         }
-
-        // If no duplicate user, hash the password
         const salt = uuidv4();
         const hashedPassword = await bcrypt.hash(Password, 10);
-
-        // Insert the new admin into the database
         const [result] = await pool.execute(
             `INSERT INTO tbl_admin (FullName, UserName, PasswordHash, Salt, EmailID, PhoneNo) VALUES (?, ?, ?, ?, ?, ?)`,
             [FullName, UserName, hashedPassword, salt, EmailID, PhoneNo]
@@ -45,7 +34,6 @@ adminroute.post("/register", async (req, res) => {
         res.status(500).json({ error: "Failed to register user" });
     }
 });
-
 adminroute.post("/login", async (req, res) => {
   const { UserName, Password } = req.body;
   if (!UserName || !Password) {
