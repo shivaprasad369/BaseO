@@ -779,7 +779,7 @@ app.get("/product-attributes/:id", async (req, res) => {
     const { id } = req.params;
     const [rows] = await pool.query(
       `
-            SELECT 
+          SELECT 
                 pa.ProductAttributeID,
                 pa.ProductID,
                 p.SellingPrice,
@@ -795,10 +795,12 @@ app.get("/product-attributes/:id", async (req, res) => {
             JOIN tbl_attributevalues av ON pa.AttributeValueID = av.AttributeValueID
             JOIN tbl_attributes a ON av.AttributeID = a.AttributeID
             JOIN tbl_products p ON pa.ProductID = p.ProductID
-            WHERE a.CategoryID = ?  
+         WHERE a.CategoryID  IN (SELECT SubCategoryIDtwo FROM tbl_products WHERE CategoryID=?)
             GROUP BY pa.AttributeValueID,pa.ProductID
+
+
             `,
-      [id] // Pass `id` as a parameter to prevent SQL injection
+      [id] // Pass id as a parameter to prevent SQL injection
     );
 
     res.status(200).json(rows);
@@ -830,10 +832,10 @@ app.get("/product-attributes/:id/:sub", async (req, res) => {
             JOIN tbl_attributevalues av ON pa.AttributeValueID = av.AttributeValueID
             JOIN tbl_attributes a ON av.AttributeID = a.AttributeID
             JOIN tbl_products p ON pa.ProductID = p.ProductID
-            WHERE a.CategoryID = ? AND p.SubCategoryIDone=?
+            WHERE a.CategoryID IN (SELECT SubCategoryIDtwo FROM tbl_products WHERE CategoryID=?) AND p.SubCategoryIDone=?
             GROUP BY pa.AttributeValueID,pa.ProductID
             `,
-      [id, sub] // Pass `id` as a parameter to prevent SQL injection
+      [id, sub] // Pass id as a parameter to prevent SQL injection
     );
 
     res.status(200).json(rows);
@@ -865,7 +867,7 @@ FROM tbl_productattribute pa
 JOIN tbl_attributevalues av ON pa.AttributeValueID = av.AttributeValueID
 JOIN tbl_attributes a ON av.AttributeID = a.AttributeID
 JOIN tbl_products p ON pa.ProductID = p.ProductID
-WHERE a.CategoryID = ? 
+WHERE a.CategoryID IN (SELECT SubCategoryIDtwo FROM tbl_products WHERE CategoryID=?)
   AND p.SubCategoryIDone = ? 
   AND p.SubCategoryIDtwo = ?
 GROUP BY pa.AttributeValueID,pa.ProductID
