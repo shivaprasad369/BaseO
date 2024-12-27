@@ -496,7 +496,7 @@ app.put("/users/:id", async (req, res) => {
   }
 });
 app.post("/attributes", async (req, res) => {
-  const { AttributeName, CategoryID,value } = req.body;
+  const { AttributeName, CategoryID, value } = req.body;
 
   if (!AttributeName || !CategoryID) {
     return res
@@ -504,35 +504,45 @@ app.post("/attributes", async (req, res) => {
       .json({ error: "AttributeName and CategoryID are required." });
   }
 
-  try {
-    const [getid]=await pool.query(`
-      SELECT AttributeID FROM tbl_attributes WHERE CategoryID =? AND AttributeName=?`,
-      [CategoryID,AttributeName]
-    );
-    if(!getid.length>0){
+  if (!Array.isArray(value)) {
+    return res
+      .status(400)
+      .json({ error: "'value' must be an array of attribute values." });
+  }
 
-      const [result] = await pool.query(
+  try {
+    // Check if the attribute already exists
+    const [existingAttribute] = await pool.query(
+      `SELECT AttributeID FROM tbl_attributes WHERE CategoryID = ? AND AttributeName = ?`,
+      [CategoryID, AttributeName]
+    );
+
+    let AttributeID;
+    if (existingAttribute.length > 0) {
+      AttributeID = existingAttribute[0].AttributeID;
+    } else {
+      // Insert new attribute
+      const [insertResult] = await pool.query(
         "INSERT INTO tbl_attributes (AttributeName, CategoryID) VALUES (?, ?)",
         [AttributeName, CategoryID]
       );
-      res.status(201).json('Inserted successfully')
+      AttributeID = insertResult.insertId;
     }
 
+    // Insert attribute values
     for (const val of value) {
-      const [result2] = await pool.query(
+      await pool.query(
         "INSERT INTO tbl_attributevalues (AttributeID, Value) VALUES (?, ?)",
-        [getid, val]
+        [AttributeID, val]
       );
-      
     }
-    
+
     res.status(201).json({
-      message: "Attribute inserted successfully",
-      AttributeID: result.insertId,
+      message: "Attribute and values inserted successfully",
+      AttributeID,
       AttributeName,
       CategoryID,
     });
-    
   } catch (error) {
     console.error("Error inserting attribute:", error);
     res
@@ -540,6 +550,7 @@ app.post("/attributes", async (req, res) => {
       .json({ error: "An error occurred while inserting the attribute." });
   }
 });
+
 app.get("/attributes", async (req, res) => {
   try {
     const [rows] = await pool.query("SELECT * FROM tbl_attributes");
