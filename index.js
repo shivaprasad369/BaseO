@@ -505,15 +505,25 @@ app.post("/attributes", async (req, res) => {
   }
 
   try {
-    const [result] = await pool.query(
-      "INSERT INTO tbl_attributes (AttributeName, CategoryID) VALUES (?, ?)",
-      [AttributeName, CategoryID]
+    const [getid]=await pool.query(`
+      SELECT AttributeID FROM tbl_attributes WHERE CategoryID =? AND AttributeName=?`,
+      [CategoryID,AttributeName]
     );
+    if(!getid.length>0){
+
+      const [result] = await pool.query(
+        "INSERT INTO tbl_attributes (AttributeName, CategoryID) VALUES (?, ?)",
+        [AttributeName, CategoryID]
+      );
+      res.status(201).json('Inserted successfully')
+    }
+
     for (const val of value) {
       const [result2] = await pool.query(
         "INSERT INTO tbl_attributevalues (AttributeID, Value) VALUES (?, ?)",
-        [result.insertId, val]
+        [getid, val]
       );
+      
     }
     
     res.status(201).json({
